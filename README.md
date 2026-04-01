@@ -395,6 +395,8 @@ Adding a leading `AT TIME ZONE 'UTC'` first converts the `timestamptz` to a naiv
 
 **Docker Compose `restart` does not re-read environment variables.** `docker compose restart bcc` restarts the process inside the existing container but the environment is baked in at container creation time. To pick up changes to `.env` or `docker-compose.yml`, always use `docker compose down && docker compose up -d`. A name mismatch between `.env` and the `environment:` block in `docker-compose.yml` produces an empty string silently — verify with `docker exec local-bcc-1 printenv | grep VAR_NAME`.
 
+**Sentinels and gap elements must participate in the closest-element sweep.** The scroll handler finds the closest element to the viewport midpoint to determine what's "active." Originally, track sentinels and gap elements were excluded from this sweep — only photos could be active. This caused a blip at track start: when the last pre-track photo was active and the user scrolled until the first post-track photo became closest, the interpolation jumped from the photo before the sentinel directly to the photo after it, skipping the sentinel's timestamp entirely. One scroll tick would briefly produce a displayMs near the post-track photo (causing a time/marker jump), then immediately snap back as the math settled. The fix is to let sentinels and gap elements become the active element — this breaks the long jump into two smooth halves (photo→sentinel, sentinel→photo) with the sentinel's timestamp anchoring the transition. The showPhotoOnMap snap calls that were in the sentinel's active-change handler were also removed since updateMarkerForTime already drives the marker continuously.
+
 ---
 
 ## Protected Trips

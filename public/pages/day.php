@@ -1438,9 +1438,8 @@ fetch(`/api/photos/${YEAR}/${SLUG}/${DAY}`)
             // Find the closest PHOTO to viewport mid — sentinels are skipped here
             let closestIdx = 0, closestDist = Infinity;
             allEls.forEach((el, i) => {
-                if (el.dataset.sentinel) return; // skip sentinels
                 if (el.dataset.headerTs) return; // skip day-header
-                if (el.dataset.gapTs)    return; // skip time gaps
+                // sentinels AND gap elements ARE included — they anchor interpolation
                 const r    = el.getBoundingClientRect();
                 const dist = Math.abs((r.top + r.height / 2) - viewMid);
                 if (dist < closestDist) { closestDist = dist; closestIdx = i; }
@@ -1478,19 +1477,14 @@ fetch(`/api/photos/${YEAR}/${SLUG}/${DAY}`)
                     // Gap element is active — nothing to update on the map
                 } else if (sentinel === 'start') {
                     isTracking = true;
-                    if (trackPts.length) {
-                        const p = trackPts[0];
-                        showPhotoOnMap({ lat: p.lat, lon: p.lon, taken_at: p.ts });
-                    }
+                    // marker driven by updateMarkerForTime — no snap needed
                 } else if (sentinel === 'end') {
                     isTracking = false;
-                    if (trackPts.length) {
-                        const p = trackPts[trackPts.length - 1];
-                        showPhotoOnMap({ lat: p.lat, lon: p.lon, taken_at: p.ts });
-                    }
+                    // marker driven by updateMarkerForTime — no snap needed
                 } else {
-                    const idx = parseInt(activeEl.dataset.idx);
-                    if (!isNaN(idx)) showPhotoOnMap(photos[idx]);
+                    // In track mode, marker position is driven continuously by
+                    // updateMarkerForTime(displayMs) — no snap needed here.
+                    // showPhotoOnMap is still used by the lightbox (see below).
                 }
             }
 
@@ -1586,8 +1580,26 @@ fetch(`/api/photos/${YEAR}/${SLUG}/${DAY}`)
                 }
             }
 
-            // Round to whole minutes and display
-            const rounded = new Date(Math.round(displayMs / 60000) * 60000);
+            // ── Clamp displayMs to track bounds ────────────────────
+            // The map, clock, elevation, and stats are all driven by displayMs.
+            // Clamping here means pre-hike and post-hike photos don't move any
+            // of those — the map sits at the trailhead until the track starts,
+            // and freezes at the trail end once the track ends. This also
+            // prevents the interpolation toward the start sentinel from causing
+            // the marker to creep forward along the track before the hike begins.
+            //
+            // isTracking uses the RAW (pre-clamp) displayMs so the topbar only
+            // goes red when the scroll position is genuinely within track time.
+            const displayMsRaw = displayMs;
+            if (trackPts.length) {
+                const trackStartMs = new Date(trackPts[0].ts).getTime();
+                const trackEndMs   = new Date(trackPts[trackPts.length - 1].ts).getTime();
+                displayMs = Math.max(trackStartMs, Math.min(trackEndMs, displayMs));
+            }
+
+            // Round to whole minutes and display — use raw value so pre/post-track
+            // photos show their actual time, not the clamped track boundary
+            const rounded = new Date(Math.round(displayMsRaw / 60000) * 60000);
             const str = rounded.toLocaleTimeString('en-GB', {
                 hour: '2-digit', minute: '2-digit',
                 timeZone: 'America/Denver',
@@ -1595,11 +1607,12 @@ fetch(`/api/photos/${YEAR}/${SLUG}/${DAY}`)
             });
             setLiveTimeText(str);
 
-            // Derive tracking from displayMs — flips exactly when clock hits track bounds
+            // Derive tracking from raw (pre-clamp) displayMs — flips exactly
+            // when scroll position crosses track bounds, not when clamped value does
             if (trackPts.length) {
                 const trackStartMs2 = new Date(trackPts[0].ts).getTime();
                 const trackEndMs2   = new Date(trackPts[trackPts.length - 1].ts).getTime();
-                const roundedMs = Math.round(displayMs / 60000) * 60000;
+                const roundedMs = Math.round(displayMsRaw / 60000) * 60000;
                 const roundedStart = Math.floor(trackStartMs2 / 60000) * 60000;
                 const roundedEnd   = Math.floor(trackEndMs2  / 60000) * 60000;
                 // In virtual end, if the last element is the end sentinel, stay red
