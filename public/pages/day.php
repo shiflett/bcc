@@ -1400,6 +1400,14 @@ fetch(`/api/photos/${YEAR}/${SLUG}/${DAY}`)
             // ── Time gap indicators ───────────────────────────────
             // Scan photos in DOM order and inject a gap element between any two
             // adjacent photos whose timestamps are more than GAP_INDICATOR_MIN_MS apart.
+            //
+            // Important: sentinels are already in the DOM when this runs. If a
+            // sentinel sits between two photos (e.g. track-end between the last
+            // hiking photo and the first camp photo), insertBefore(gap, nextPhoto)
+            // would place the gap AFTER the sentinel. Instead, we walk backward
+            // from the next photo to find the first preceding sentinel and insert
+            // the gap before that, keeping the stream order:
+            //   …photo → gap → sentinel → photo…
             const GAP_INDICATOR_MIN_MS = 60 * 60 * 1000; // 1 hour
             const photoItems = [...photosCol.querySelectorAll('.photo-item')];
             for (let i = 0; i < photoItems.length - 1; i++) {
@@ -1411,7 +1419,34 @@ fetch(`/api/photos/${YEAR}/${SLUG}/${DAY}`)
                 const deltaMs = bMs - aMs;
                 if (deltaMs < GAP_INDICATOR_MIN_MS) continue;
                 const midMs = Math.round((aMs + bMs) / 2);
-                photosCol.insertBefore(makeGapIndicator(deltaMs, midMs), photoItems[i + 1]);
+
+                // If the track end falls within this gap, show duration from
+                // last photo to track end (not to next photo) — that's what the
+                // gap visually represents in the stream.
+                // Similarly, if track start falls within this gap, show duration
+                // from track start to next photo.
+                let displayDeltaMs = deltaMs;
+                if (trackPts.length) {
+                    const trackStartMs = new Date(trackPts[0].ts).getTime();
+                    const trackEndMs   = new Date(trackPts[trackPts.length - 1].ts).getTime();
+                    if (trackEndMs > aMs && trackEndMs < bMs) {
+                        displayDeltaMs = trackEndMs - aMs;
+                    } else if (trackStartMs > aMs && trackStartMs < bMs) {
+                        displayDeltaMs = bMs - trackStartMs;
+                    }
+                }
+
+                // Find the correct insertion point — before any sentinel that
+                // was inserted between photoItems[i] and photoItems[i+1]
+                let insertionPoint = photoItems[i + 1];
+                let node = insertionPoint.previousSibling;
+                while (node && node !== photoItems[i]) {
+                    if (node.nodeType === 1 && node.dataset?.sentinel) {
+                        insertionPoint = node;
+                    }
+                    node = node.previousSibling;
+                }
+                photosCol.insertBefore(makeGapIndicator(displayDeltaMs, midMs), insertionPoint);
             }
 
             // Both track and photos are now ready — set initial state
@@ -1581,15 +1616,9 @@ fetch(`/api/photos/${YEAR}/${SLUG}/${DAY}`)
             }
 
             // ── Clamp displayMs to track bounds ────────────────────
-            // The map, clock, elevation, and stats are all driven by displayMs.
-            // Clamping here means pre-hike and post-hike photos don't move any
-            // of those — the map sits at the trailhead until the track starts,
-            // and freezes at the trail end once the track ends. This also
-            // prevents the interpolation toward the start sentinel from causing
-            // the marker to creep forward along the track before the hike begins.
-            //
-            // isTracking uses the RAW (pre-clamp) displayMs so the topbar only
-            // goes red when the scroll position is genuinely within track time.
+            // Map marker, progress line, elevation, and stats use clamped value —
+            // frozen at trailhead before track starts, frozen at trail end after.
+            // Clock and isTracking use RAW value so they reflect actual scroll time.
             const displayMsRaw = displayMs;
             if (trackPts.length) {
                 const trackStartMs = new Date(trackPts[0].ts).getTime();
@@ -1597,8 +1626,7 @@ fetch(`/api/photos/${YEAR}/${SLUG}/${DAY}`)
                 displayMs = Math.max(trackStartMs, Math.min(trackEndMs, displayMs));
             }
 
-            // Round to whole minutes and display — use raw value so pre/post-track
-            // photos show their actual time, not the clamped track boundary
+            // Round to whole minutes and display — use raw so clock shows actual time
             const rounded = new Date(Math.round(displayMsRaw / 60000) * 60000);
             const str = rounded.toLocaleTimeString('en-GB', {
                 hour: '2-digit', minute: '2-digit',
@@ -1607,8 +1635,7 @@ fetch(`/api/photos/${YEAR}/${SLUG}/${DAY}`)
             });
             setLiveTimeText(str);
 
-            // Derive tracking from raw (pre-clamp) displayMs — flips exactly
-            // when scroll position crosses track bounds, not when clamped value does
+            // Derive tracking from raw displayMs — flips at actual scroll time, not clamped
             if (trackPts.length) {
                 const trackStartMs2 = new Date(trackPts[0].ts).getTime();
                 const trackEndMs2   = new Date(trackPts[trackPts.length - 1].ts).getTime();
