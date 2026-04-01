@@ -46,6 +46,18 @@ docker exec local-bcc-db-1 psql -U bcc -d bcc
 docker exec local-bcc-db-1 psql -U bcc -d bcc -c "SELECT count(*) FROM trackpoints;"
 ```
 
+**Environment variables:** BCC reads secrets via `getenv()` in PHP. Variables must be declared in two places:
+
+1. **`~/local/.env`** — defines the values, e.g. `BCC_MAPBOX=pk.ey...`. Docker Compose reads this file automatically when it runs from `~/local/`.
+2. **`~/local/docker-compose.yml`** under the `bcc` service's `environment:` block — passes the value into the container using `${VAR_NAME}` substitution, e.g.:
+
+```yaml
+environment:
+  MAPBOX_TOKEN: ${BCC_MAPBOX}
+```
+
+The name in `docker-compose.yml` is what PHP sees via `getenv()`. The name in `.env` is what Docker Compose substitutes. If these don't match exactly, `getenv()` silently returns an empty string — no error, just a broken token. After changing either file, a full `docker compose down && docker compose up -d` is required; `restart` does not re-read environment variables.
+
 **Port mapping:** BCC is at `localhost:8083` externally, but nginx inside the container listens on port 8080. This caused a Chrome-cached 301 redirect bug — `port_in_redirect off` in nginx.conf fixes it for new requests, but cached 301s in Chrome must be cleared manually via `chrome://net-internals/#hsts`.
 
 **Admin auth cookie:** The `bcc_admin` cookie is scoped to `path: '/'` so it works on all pages including the trip page upload zone. Cookie is HttpOnly, SameSite=Strict, 10-year expiry. After updating `auth.php` to widen the cookie path, users must log in once to get a new cookie.
@@ -232,9 +244,9 @@ If day N doesn't exist in `trip_days` yet (e.g. after a reset), the timestamp sc
 ```bash
 for DAY in 1 2 3 4 5; do
   docker compose exec bcc php bin/timestamp-track-from-photos.php \
-	2025 flat-tops $DAY /app/strava/flat-tops-$DAY.gpx /tmp/flat-tops-day$DAY-timed.gpx && \
+  2025 flat-tops $DAY /app/strava/flat-tops-$DAY.gpx /tmp/flat-tops-day$DAY-timed.gpx && \
   docker compose exec bcc php bin/import-gpx.php \
-	2025 flat-tops "Flat Tops" "Flat Tops Wilderness" /tmp/flat-tops-day$DAY-timed.gpx --day=$DAY
+  2025 flat-tops "Flat Tops" "Flat Tops Wilderness" /tmp/flat-tops-day$DAY-timed.gpx --day=$DAY
 done
 ```
 
@@ -331,7 +343,7 @@ Two parallel fetches: `/api/points/` and `/api/photos/`. Both must complete befo
 ```javascript
 let _trackReady = false, _photosReady = false;
 function _tryFillSentinels() {
-	if (_trackReady && _photosReady && window.fillSentinels) window.fillSentinels();
+  if (_trackReady && _photosReady && window.fillSentinels) window.fillSentinels();
 }
 ```
 
@@ -374,6 +386,14 @@ On out-and-back routes, pure geographic nearest-point matching picks the wrong l
 **Anchor deduplication is necessary.** Multiple anchors matching the same track index (e.g. several photos taken at the same spot) cause zero-length interpolation segments. Deduplicate by keeping the anchor with smallest geographic match distance.
 
 **RDP recursion depth.** PHP's default recursion limit can be hit by RDP on 14k+ point tracks. The distance filter (≥8m) reduces the input dramatically before RDP runs, but `ini_set` guards are still in place.
+
+**Don't use double `AT TIME ZONE` on a `timestamptz` column.** `recorded_at` is `timestamptz` — it already carries timezone info. The correct way to convert it to a local date is:
+```sql
+(recorded_at AT TIME ZONE 'America/Denver')::date
+```
+Adding a leading `AT TIME ZONE 'UTC'` first converts the `timestamptz` to a naive `timestamp`, then the second conversion treats it as if it were in Denver time and converts it *again*, producing a silently wrong result (count of 0 instead of the expected rows). This caused `$has_track` to return false on day 1, hiding the elevation strip despite the data being correctly stored.
+
+**Docker Compose `restart` does not re-read environment variables.** `docker compose restart bcc` restarts the process inside the existing container but the environment is baked in at container creation time. To pick up changes to `.env` or `docker-compose.yml`, always use `docker compose down && docker compose up -d`. A name mismatch between `.env` and the `environment:` block in `docker-compose.yml` produces an empty string silently — verify with `docker exec local-bcc-1 printenv | grep VAR_NAME`.
 
 ---
 

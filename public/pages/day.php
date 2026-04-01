@@ -46,7 +46,7 @@ $trackStartsFirst = !$firstPhotoTime || !$trackStartTime
 $trackCountStmt = db()->prepare("
     SELECT COUNT(*) FROM trackpoints
     WHERE trip_id = ?
-    AND (recorded_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Denver')::date = ?
+    AND (recorded_at AT TIME ZONE 'America/Denver')::date = ?
 ");
 $trackCountStmt->execute([$trip['id'], $day['date']]);
 $has_track = (int)$trackCountStmt->fetchColumn() > 0;
