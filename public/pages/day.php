@@ -273,7 +273,7 @@ body {
 }
 
 /* ── Every stream element has enough height for smooth interpolation ── */
-.photo-item { min-height: 50vh; }
+.photo-item { min-height: 35vh; }
 
 .track-sentinel__card {
     width: 100%;
@@ -299,6 +299,34 @@ body {
     font-weight: 600;
     color: var(--day-red);
     letter-spacing: 0.02em;
+}
+
+/* ── Time gap indicator ───────────────────────────────────── */
+.time-gap {
+    min-height: 20vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0 36px;
+    position: relative;
+}
+.time-gap__line {
+    flex: 1;
+    width: 2px;
+    min-height: 80px;
+    position: relative;
+    overflow: visible;
+}
+.time-gap__label {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--day-text-faint);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 10px 0;
+    opacity: 0.6;
+    user-select: none;
 }
 
 #photos-col::after { content: ''; display: block; height: 50vh; }
@@ -571,7 +599,7 @@ const YEAR    = <?= json_encode($year) ?>;
 const SLUG    = <?= json_encode($slug) ?>;
 const DAY     = <?= json_encode($dayNum) ?>;
 const TRIP_ID = <?= json_encode($trip['id']) ?>;
-const MAPBOX_TOKEN = 'pk.eyJ1Ijoic2hpZmxldHQiLCJhIjoiY21uN2V1bW4yMDA1NjJwcTU3dTc0dzR3ciJ9.Pc7hSZiIfW5VJ-ccZDnQgQ';
+const MAPBOX_TOKEN = <?= json_encode(getenv('BCC_MAPBOX') ?: '') ?>;
 
 const TRACK_STARTS_FIRST = <?= json_encode($trackStartsFirst) ?>; // no pre-hike photos
 const HAS_TRACK          = <?= json_encode($has_track) ?>;        // trip has GPS trackpoints
@@ -1258,6 +1286,55 @@ fetch(`/api/photos/${YEAR}/${SLUG}/${DAY}`)
             el.dataset.sentinel = type;
             return el;
         }
+
+        function makeGapIndicator(deltaMs, midMs) {
+            const totalMin = Math.round(deltaMs / 60000);
+            const hrs  = Math.floor(totalMin / 60);
+            const mins = totalMin % 60;
+            const label = hrs > 0
+                ? (mins > 0 ? `${hrs} hr ${mins} min` : `${hrs} hr`)
+                : `${mins} min`;
+
+            // Vertical wavy dashed SVG — sinusoidal path down the center
+            // 6 full waves over 120px height, amplitude 4px
+            const H = 120, W = 24, amp = 4, waves = 5;
+            const steps = 80;
+            let d = `M ${W/2} 0`;
+            for (let i = 1; i <= steps; i++) {
+                const y = (i / steps) * H;
+                const x = W/2 + amp * Math.sin((i / steps) * waves * 2 * Math.PI);
+                d += ` L ${x} ${y}`;
+            }
+
+            const el = document.createElement('div');
+            el.className = 'time-gap';
+            el.dataset.gapTs = midMs;
+            el.innerHTML = `
+                <div class="time-gap__line">
+                    <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"
+                         style="display:block;margin:0 auto;overflow:visible">
+                        <path d="${d}"
+                              fill="none"
+                              stroke="var(--day-border)"
+                              stroke-width="1.5"
+                              stroke-dasharray="3 4"
+                              stroke-linecap="round"/>
+                    </svg>
+                </div>
+                <span class="time-gap__label">${label}</span>
+                <div class="time-gap__line">
+                    <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"
+                         style="display:block;margin:0 auto;overflow:visible">
+                        <path d="${d}"
+                              fill="none"
+                              stroke="var(--day-border)"
+                              stroke-width="1.5"
+                              stroke-dasharray="3 4"
+                              stroke-linecap="round"/>
+                    </svg>
+                </div>`;
+            return el;
+        }
         const startSentinel = makeSentinel('start');
         const endSentinel   = makeSentinel('end');
 
@@ -1320,6 +1397,23 @@ fetch(`/api/photos/${YEAR}/${SLUG}/${DAY}`)
             // pseudo-element provides 50vh of trailing space after the sentinel
             if (nextDayLink) photosCol.appendChild(nextDayLink);
 
+            // ── Time gap indicators ───────────────────────────────
+            // Scan photos in DOM order and inject a gap element between any two
+            // adjacent photos whose timestamps are more than GAP_INDICATOR_MIN_MS apart.
+            const GAP_INDICATOR_MIN_MS = 60 * 60 * 1000; // 1 hour
+            const photoItems = [...photosCol.querySelectorAll('.photo-item')];
+            for (let i = 0; i < photoItems.length - 1; i++) {
+                const a = photos[parseInt(photoItems[i].dataset.idx)];
+                const b = photos[parseInt(photoItems[i + 1].dataset.idx)];
+                if (!a?.taken_at || !b?.taken_at) continue;
+                const aMs = new Date(a.taken_at).getTime();
+                const bMs = new Date(b.taken_at).getTime();
+                const deltaMs = bMs - aMs;
+                if (deltaMs < GAP_INDICATOR_MIN_MS) continue;
+                const midMs = Math.round((aMs + bMs) / 2);
+                photosCol.insertBefore(makeGapIndicator(deltaMs, midMs), photoItems[i + 1]);
+            }
+
             // Both track and photos are now ready — set initial state
             if (window._onWindowScroll) window._onWindowScroll();
         };
@@ -1330,6 +1424,7 @@ fetch(`/api/photos/${YEAR}/${SLUG}/${DAY}`)
             if (el.dataset.headerTs) return new Date(el.dataset.headerTs).getTime();
             if (el.dataset.sentinel === 'start') return trackPts.length ? new Date(trackPts[0].ts).getTime() : null;
             if (el.dataset.sentinel === 'end')   return trackPts.length ? new Date(trackPts[trackPts.length-1].ts).getTime() : null;
+            if (el.dataset.gapTs) return parseInt(el.dataset.gapTs);
             const idx = parseInt(el.dataset.idx);
             return (!isNaN(idx) && photos[idx]?.taken_at) ? new Date(photos[idx].taken_at).getTime() : null;
         }
@@ -1337,7 +1432,7 @@ fetch(`/api/photos/${YEAR}/${SLUG}/${DAY}`)
         function onWindowScroll() {
             // All elements in DOM order — sentinels included for time interpolation
             // but excluded from the closest-element sweep (option C: one-way gates)
-            const allEls = [...photosCol.querySelectorAll('.day-header[data-header-ts], .photo-item, .track-sentinel')];
+            const allEls = [...photosCol.querySelectorAll('.day-header[data-header-ts], .photo-item, .track-sentinel, .time-gap')];
             if (!allEls.length) return;
 
             // Find the closest PHOTO to viewport mid — sentinels are skipped here
@@ -1345,6 +1440,7 @@ fetch(`/api/photos/${YEAR}/${SLUG}/${DAY}`)
             allEls.forEach((el, i) => {
                 if (el.dataset.sentinel) return; // skip sentinels
                 if (el.dataset.headerTs) return; // skip day-header
+                if (el.dataset.gapTs)    return; // skip time gaps
                 const r    = el.getBoundingClientRect();
                 const dist = Math.abs((r.top + r.height / 2) - viewMid);
                 if (dist < closestDist) { closestDist = dist; closestIdx = i; }
@@ -1378,7 +1474,9 @@ fetch(`/api/photos/${YEAR}/${SLUG}/${DAY}`)
 
                 // Update map marker when active element changes (track mode)
                 const sentinel = activeEl.dataset.sentinel;
-                if (sentinel === 'start') {
+                if (activeEl.dataset.gapTs) {
+                    // Gap element is active — nothing to update on the map
+                } else if (sentinel === 'start') {
                     isTracking = true;
                     if (trackPts.length) {
                         const p = trackPts[0];

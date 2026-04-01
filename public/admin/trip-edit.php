@@ -180,7 +180,7 @@ foreach (['started_at', 'ended_at'] as $f) {
 }
 
 $page_title = $is_new ? 'New Trip' : htmlspecialchars($trip['name']);
-$mapbox_token = 'pk.eyJ1Ijoic2hpZmxldHQiLCJhIjoiY21uN2V1bW4yMDA1NjJwcTU3dTc0dzR3ciJ9.Pc7hSZiIfW5VJ-ccZDnQgQ';
+$mapbox_token = json_encode(getenv('BCC_MAPBOX') ?: '');
 ?>
 <!DOCTYPE html>
 <html lang="en">

@@ -29,7 +29,7 @@ $stmt = $pdo->query('
 $trips = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Build a static map URL for each trip using a simplified full-track overview
-$mapbox_token = 'pk.eyJ1Ijoic2hpZmxldHQiLCJhIjoiY21uN2V1bW4yMDA1NjJwcTU3dTc0dzR3ciJ9.Pc7hSZiIfW5VJ-ccZDnQgQ';
+$mapbox_token = json_encode(getenv('BCC_MAPBOX') ?: '');
 
 function trip_static_map(int $trip_id, string $token, $pdo): string {
     $stmt = $pdo->prepare('

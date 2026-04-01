@@ -373,7 +373,7 @@ const YEAR    = <?= json_encode($year) ?>;
 const SLUG    = <?= json_encode($slug) ?>;
 const DAY     = <?= json_encode($dayNum) ?>;
 const TRIP_ID = <?= json_encode($trip['id']) ?>;
-const MAPBOX_TOKEN = 'pk.eyJ1Ijoic2hpZmxldHQiLCJhIjoiY21uN2V1bW4yMDA1NjJwcTU3dTc0dzR3ciJ9.Pc7hSZiIfW5VJ-ccZDnQgQ';
+const MAPBOX_TOKEN = <?= json_encode(getenv('BCC_MAPBOX') ?: '') ?>;
 
 const TRACK_COLOR_BASE    = '#FFFFFF';
 const TRACK_COLOR_VISITED = '#E4572E';

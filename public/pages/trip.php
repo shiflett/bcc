@@ -48,7 +48,7 @@ $track_stmt = $pdo->prepare('
         = (:date::date)
     ORDER BY recorded_at ASC
 ');
-$mapbox_token = 'pk.eyJ1Ijoic2hpZmxldHQiLCJhIjoiY21uN2V1bW4yMDA1NjJwcTU3dTc0dzR3ciJ9.Pc7hSZiIfW5VJ-ccZDnQgQ';
+$mapbox_token = json_encode(getenv('BCC_MAPBOX') ?: '');
 
 function simplify_track(array $pts, int $max): array {
     if (count($pts) <= $max) return $pts;
@@ -695,7 +695,7 @@ const LOOP_MS        = 3500;
 const map = L.map('map', { zoomControl: false, attributionControl: false, scrollWheelZoom: true });
 
 // Token matches day.php exactly
-const MAPBOX_TOKEN = 'pk.eyJ1Ijoic2hpZmxldHQiLCJhIjoiY21uN2V1bW4yMDA1NjJwcTU3dTc0dzR3ciJ9.Pc7hSZiIfW5VJ-ccZDnQgQ';
+const MAPBOX_TOKEN = <?= json_encode(getenv('BCC_MAPBOX') ?: '') ?>;
 
 L.tileLayer(
     `https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/256/{z}/{x}/{y}@2x?access_token=${MAPBOX_TOKEN}`,
