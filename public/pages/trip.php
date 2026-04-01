@@ -48,7 +48,8 @@ $track_stmt = $pdo->prepare('
         = (:date::date)
     ORDER BY recorded_at ASC
 ');
-$mapbox_token = json_encode(getenv('BCC_MAPBOX') ?: '');
+$mapbox_token_raw = getenv('BCC_MAPBOX') ?: '';  // raw string for PHP URL construction
+$mapbox_token     = json_encode($mapbox_token_raw); // JSON-encoded for JS constant
 
 function simplify_track(array $pts, int $max): array {
     if (count($pts) <= $max) return $pts;
@@ -97,7 +98,7 @@ if (!empty($all_trip_pts)) {
 
 // Overview: full trip at 2:1 (560×280), shared bbox
 $overview_map_url = $trip_bbox
-    ? static_map_url(simplify_track($all_trip_pts, 150), $mapbox_token, 560, 280, $trip_bbox)
+    ? static_map_url(simplify_track($all_trip_pts, 150), $mapbox_token_raw, 560, 280, $trip_bbox)
     : '';
 
 // Day cards: each day's segment, framed in the full trip bbox, 2:1 (360×180)
@@ -111,7 +112,7 @@ foreach ($days as $day) {
     $day_has_track[$dn] = !empty($all_pts);
     $pts = simplify_track($all_pts, 60);
     $day_static_maps[$dn] = $pts
-        ? static_map_url($pts, $mapbox_token, 360, 180, $trip_bbox)
+        ? static_map_url($pts, $mapbox_token_raw, 360, 180, $trip_bbox)
         : '';
 }
 
@@ -122,7 +123,7 @@ $total_dist_m = array_sum(array_column($days, 'distance_m'));
 // Fetch evenly-sampled photo thumbnails per day for the strip
 // Only fetched for days with >= PHOTO_THRESHOLD photos
 $photo_threshold  = 8;
-$photo_strip_count = 7; // shown before "+N more"
+$photo_strip_count = 15; // shown before "+N more"
 
 $strip_stmt = $pdo->prepare('
     SELECT filename FROM media
@@ -642,7 +643,9 @@ html, body {
                                  alt="" loading="lazy" decoding="async">
                             <?php endforeach; ?>
                         </div>
+                        <?php if ($remaining > 0): ?>
                         <div class="day-card-more">+<?= $remaining ?></div>
+                        <?php endif; ?>
                         <a class="day-card-cta" href="<?= $day_url ?>"><?= $cta_label ?></a>
                     </div>
 <?php else: ?>
@@ -736,7 +739,7 @@ function initMapLayers() {
     });
     if (!allLL.length) return;
     map.fitBounds(L.latLngBounds(allLL), { animate: false, padding: [32, 32] });
-    map.zoomIn(2, { animate: false });
+    map.setZoom(15, { animate: false });
 
     // Red animated line
     animLine = L.polyline([], {
